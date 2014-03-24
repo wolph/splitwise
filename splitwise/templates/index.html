@@ -1,0 +1,28 @@
+{#
+{% extends 'base.html' %}
+
+{% block content %}
+    <div class="container">
+        <h1>Splitwise</h1>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+
+
+{% endblock scripts %}
+#}
+
+<html>
+<head>
+    <title>Splitwise</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('.static', filename='ext/resources/css/ext-all.css') }}">
+    <script type="text/javascript">
+    var STATIC_URL = '{{ url_for('.static', filename='') }}';
+    </script>
+    <script type="text/javascript" src="{{ url_for('.static', filename='ext/ext-all-debug-w-comments.js') }}"></script>
+    <script type="text/javascript" src="{{ url_for('.static', filename='app.js') }}"></script>
+</head>
+<body></body>
+</html>
