@@ -26,8 +26,11 @@ class SplitwiseApiResponse(object):
         else:
             content_type = content_type[0]
 
-        assert content_type == 'application/json', (
-            'Only application/json data is supported')
+        #assert content_type == 'application/json', (
+        #    'Only application/json data is supported')
+        if content_type != 'application/json':
+            app.logger.error('Only application/json data is supported, got %r',
+                             content_type)
 
         self.response = response
         self.raw_data = raw_data
@@ -115,25 +118,34 @@ class SplitwiseRemoteApp(object):
 
     def request(self, url, method, body=''):
         url = urlparse.urljoin(self.base_url, url)
+        app.logger.info('%s %s (%r)', method, url, body)
         response = SplitwiseApiResponse(self.client.request(url, method, body))
         if 200 <= response.status < 300:
             return response
-        #elif response.status == 401:
-        #    flask.abort(403)
         else:
             flask.abort(response.status)
 
     def get_url(self, url, **query):
+        query = dict((k, v) for k, v in query.iteritems() if v)
         parsed = list(urlparse.urlparse(url))
         parsed[4] = urllib.urlencode(query)
-        return urlparse.urlunparse(parsed)
+        full_url = urlparse.urlunparse(parsed)
+        return full_url
+
+    def get_body(self, body):
+        body = dict((k, v) for k, v in body.iteritems() if v is not None)
+        return urllib.urlencode(body)
 
     def get(self, url, **query):
         return self.request(self.get_url(url, **query), 'GET')
 
     def post(self, url, **body_params):
-        body = ''
+        body = self.get_body(body_params)
         return self.request(url, 'POST', body)
+
+    def put(self, url, **body_params):
+        body = self.get_body(body_params)
+        return self.request(url, 'PUT', body)
 
     def authorize(self, callback):
         client = oauth2.Client(self.consumer)
@@ -176,74 +188,74 @@ class SplitwiseRemoteApp(object):
     def get_categories(self):
         return self.get('get_categories')['categories']
 
-    def parse_sentence(self, input_, group_id=None, friend_id=None,
-                       autosave=False):
-        return self.post(
-            'parse_sentence',
-            data=dict(input=input_, group_id=group_id, friend_id=friend_id,
-                      autosave=autosave),
-        )
+    def parse_sentence(self, kwargs):
+        assert kwargs.get('input'), '`input` is a required argument'
+        return self.post('parse_sentence', **kwargs)
 
     # Users
     def get_current_user(self):
         return self.get('get_current_user')['user']
 
-    def get_user(self):
-        return self.get('get_user')['user']
+    def get_user(self, user_id):
+        return self.get('get_user/%d' % user_id)['user']
 
-    def update_user(self):
-        return self.get('update_user')
+    def update_user(self, user_id, kwargs):
+        # TODO: According to the Splitwise API docs this should be PUT so it it
+        # breaks, try that instead ;)
+        return self.post('update_user/%d' % user_id, **kwargs)['user']
 
     # Groups
     def get_groups(self):
         return self.get('get_groups')['groups']
 
-    def get_group(self):
-        return self.get('get_group')['groups']
+    def get_group(self, group_id):
+        return self.get('get_group/%d' % group_id)['group']
 
-    def create_group(self):
-        return self.get('create_group')
+    def create_group(self, kwargs):
+        return self.get('create_group', **kwargs)['group']
 
-    def delete_group(self):
-        return self.get('delete_group')
+    def delete_group(self, group_id):
+        return self.post('delete_group/%d' % group_id)['success']
 
-    def add_user_to_group(self):
-        return self.get('add_user_to_group')
+    def add_user_to_group(self, group_id, kwargs):
+        return self.post('add_user_to_group', group_id=group_id, **kwargs).data
 
-    def remove_user_from_group(self):
-        return self.get('remove_user_from_group')
+    def remove_user_from_group(self, group_id, user_id):
+        return self.post('remove_user_from_group', group_id=group_id,
+                         user_id=user_id)
 
     # Expenses
-    def get_expenses(self):
-        return self.get('get_expenses')['expenses']
+    def get_expenses(self, kwargs):
+        return self.get('get_expenses', **kwargs)['expenses']
 
-    def get_expense(self):
-        return self.get('get_expense')['expense']
+    def get_expense(self, expense_id):
+        return self.get('get_expense/%d' % expense_id)['expense']
 
-    def create_expense(self):
-        return self.get('create_expense')
+    def create_expense(self, kwargs):
+        return self.post('create_expense', **kwargs).data
 
-    def update_expense(self):
-        return self.get('update_expense')
+    def update_expense(self, expense_id, kwargs):
+        print 'expense id', expense_id, kwargs
+        return self.post('update_expense/%d' % expense_id, **kwargs)
 
-    def delete_expense(self):
-        return self.get('delete_expense')
+    def delete_expense(self, expense_id):
+        return self.get('delete_expense/%d' % expense_id)['success']
 
     # Friends
     def get_friends(self):
         return self.get('get_friends')['friends']
 
-    def get_friend(self):
-        return self.get('get_friend')['friend']
+    def get_friend(self, friend_id):
+        return self.get('get_friend/%d' % friend_id)['friend']
 
-    def create_friend(self):
-        return self.get('create_friend')
+    def create_friend(self, kwargs):
+        return self.get('create_friend', **kwargs)['friend']
 
-    def create_friends(self):
-        return self.get('create_friends')
+    def create_friends(self, kwargs):
+        return self.get('create_friends', **kwargs)['friends']
 
-    def delete_friend(self):
-        return self.get('delete_friend')
+    def delete_friend(self, friend_id):
+        return self.get('delete_friend/%d' % friend_id)['success']
 
 
 splitwise = SplitwiseRemoteApp()
