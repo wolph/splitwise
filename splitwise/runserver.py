@@ -6,7 +6,6 @@ def get_app():
     from splitwise import app
     return app
 
-
 def run():
     app = get_app()
     app.run(

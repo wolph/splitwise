@@ -4,7 +4,19 @@ import pprint
 import oauth2
 from splitwise import app
 import functools
+from flask.ext import restful
 
+
+class JSONEncoder(flask.json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, SplitwiseApiResponse):
+            return obj.data
+
+        return flask.json.JSONEncoder.default(self, obj)
+
+
+restful.representations.json.settings['cls'] = JSONEncoder
+app.json_encoder = JSONEncoder
 
 try:
     import urlparse
@@ -36,8 +48,14 @@ class SplitwiseApiResponse(object):
         self.raw_data = raw_data
         self.data = flask.json.loads(raw_data)
 
+    def get(self, key, default=None):
+        return self.data.get(key, default)
+
     def __getitem__(self, key):
         return self.data[key]
+
+    def __setitem__(self, key, value):
+        self.data[key] = value
 
     @property
     def status(self):
@@ -71,20 +89,22 @@ class SplitwiseRemoteApp(object):
 
     def __init__(
             self,
-            token_key=app.config['API_KEY'],
-            token_secret=app.config['API_SECRET'],
+            token_key=app.config.get('API_KEY'),
+            token_secret=app.config.get('API_SECRET'),
             base_url=API_URL,
             request_token_url=API_REQUEST_TOKEN_URL,
             access_token_url=API_ACCESS_TOKEN_URL,
             authorize_url=API_AUTHORIZE_URL,
     ):
-        self.token_key = token_key
-        self.token_secret = token_secret
         self.base_url = base_url
         self.request_token_url = request_token_url
         self.access_token_url = access_token_url
         self.authorize_url = authorize_url
-        self.consumer = oauth2.Consumer(key=token_key, secret=token_secret)
+
+        if token_key and token_secret:
+            self.consumer = oauth2.Consumer(key=token_key, secret=token_secret)
+        else:
+            self.consumer = None
 
     @property
     def client(self):
@@ -117,16 +137,21 @@ class SplitwiseRemoteApp(object):
                      ':type: :class:`oauth2.Token`')
 
     def request(self, url, method, body=''):
+        assert self.consumer, ('Dont forget to set the `API_KEY` and '
+                               '`API_SECRET` in the config')
         url = urlparse.urljoin(self.base_url, url)
         app.logger.info('%s %s (%r)', method, url, body)
         response = SplitwiseApiResponse(self.client.request(url, method, body))
+        return response
+        # TODO: see if this code is actually needed, it seems to work just fine
+        # for the time being
         if 200 <= response.status < 300:
             return response
         else:
             flask.abort(response.status)
 
     def get_url(self, url, **query):
-        query = dict((k, v) for k, v in query.iteritems() if v)
+        query = dict((k, v) for k, v in query.iteritems() if v is not None)
         parsed = list(urlparse.urlparse(url))
         parsed[4] = urllib.urlencode(query)
         full_url = urlparse.urlunparse(parsed)
@@ -226,17 +251,28 @@ class SplitwiseRemoteApp(object):
 
     # Expenses
     def get_expenses(self, kwargs):
-        return self.get('get_expenses', **kwargs)['expenses']
+        expenses = self.get('get_expenses', **kwargs)
+        if expenses.get('error'):
+            return expenses
+
+        count = len(expenses['expenses'])
+        total = count + kwargs['offset']
+        if count == kwargs['limit']:
+            total += 1
+        expenses['total'] = total
+        for expense in expenses['expenses']:
+            expense['group_id'] = expense['group_id'] or 0
+        return expenses
 
     def get_expense(self, expense_id):
-        return self.get('get_expense/%d' % expense_id)['expense']
+        return dict(
+            expenses=[self.get('get_expense/%d' % expense_id)['expense']])
 
     def create_expense(self, kwargs):
         return self.post('create_expense', **kwargs).data
 
     def update_expense(self, expense_id, kwargs):
-        print 'expense id', expense_id, kwargs
-        return self.post('update_expense/%d' % expense_id, **kwargs)
+        return self.put('update_expense/%d' % expense_id, **kwargs).data
 
     def delete_expense(self, expense_id):
         return self.get('delete_expense/%d' % expense_id)['success']
