@@ -118,11 +118,6 @@ class SplitwiseRemoteApp(object):
         return oauth2.Client(self.consumer, self.token)
 
     def get_token(self):
-        if not getattr(self, '_token', None):
-            token_string = flask.session.get('token')
-            if token_string:
-                self.token = token_string
-
         return getattr(self, '_token', None)
 
     def set_token(self, token_or_string):
@@ -131,14 +126,12 @@ class SplitwiseRemoteApp(object):
                 self._token = oauth2.Token.from_string(token_or_string)
         elif isinstance(token_or_string, oauth2.Token):
             self._token = token_or_string
-            flask.session['token'] = token_or_string.to_string()
         else:
             raise TypeError('Unknown type %r, cannot convert %r to token' % (
                 type(token_or_string), token_or_string))
 
     def del_token(self):
         self._token = None
-        flask.session.pop('token', None)
 
     token = property(get_token, set_token, del_token,
                      ':type: :class:`oauth2.Token`')
@@ -149,16 +142,10 @@ class SplitwiseRemoteApp(object):
         url = urlparse.urljoin(self.base_url, url)
         app.logger.info('%s %s (%r)', method, url, body)
 
-        try:
-            response = SplitwiseApiResponse(
-                self.client.request(url, method, body))
-        except NotLoggedInException:
-            flask.abort(401)
+        response = SplitwiseApiResponse(
+            self.client.request(url, method, body))
 
-        if 200 <= response.status < 300:
-            return response
-        else:
-            flask.abort(response.status)
+        return response
 
     def get_url(self, url, **query):
         query = dict((k, v) for k, v in query.iteritems() if v is not None)
@@ -304,5 +291,38 @@ class SplitwiseRemoteApp(object):
         return self.get('delete_friend/%d' % friend_id)['success']
 
 
-splitwise = SplitwiseRemoteApp()
+class SplitwiseFlaskApp(SplitwiseRemoteApp):
+    def get_token(self):
+        token = flask.session.get('token')
+        if token:
+            return oauth2.Token.from_string(token)
+
+    def set_token(self, token_or_string):
+        if isinstance(token_or_string, basestring):
+            flask.session['token'] = token_or_string
+        elif isinstance(token_or_string, oauth2.Token):
+            flask.session['token'] = token_or_string.to_string()
+        else:
+            raise TypeError('Unknown type %r, cannot convert %r to token' % (
+                type(token_or_string), token_or_string))
+
+    def del_token(self):
+        flask.session.pop('token', None)
+
+    token = property(get_token, set_token, del_token,
+                     ':type: :class:`oauth2.Token`')
+
+    def request(self, url, method, body=''):
+        try:
+            response = SplitwiseRemoteApp.request(self, url, method, body)
+        except NotLoggedInException:
+            flask.abort(401)
+
+        if 200 <= response.status < 300:
+            return response
+        else:
+            flask.abort(response.status)
+
+
+splitwise = SplitwiseFlaskApp()
 
