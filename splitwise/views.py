@@ -301,10 +301,15 @@ def index(context):
     pass
 
 
-@app.route('/')
+@app.route('/upload/', methods=['POST'])
 @view_decorator
 def upload(context):
-    pass
+    import mt940
+    if flask.request.method == 'POST':
+        transactions = mt940.parse(flask.request.files['file'])
+        print 'transactions', transactions
+        for transaction in transactions:
+            print 'trans', transaction
 
 
 @app.route('/authorized/')
