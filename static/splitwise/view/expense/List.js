@@ -178,11 +178,17 @@ Ext.define('Splitwise.view.expense.List', {
         displayInfo: true,
         afterPageText: '',
         displayMsg: 'Displaying {0} - {1}',
-        items: [{
+        items: [/*{
             xtype: 'button',
             text: 'Import expenses',
             handler: function(){
                 Ext.widget('expenseimport');
+            },
+        },*/ {
+            xtype: 'button',
+            text: 'Unify currencies',
+            handler: function(){
+                Ext.widget('unify');
             },
         }],
     }],

@@ -5,11 +5,13 @@ Ext.define('Splitwise.controller.Expenses', {
         'Groups',
         'Friends',
         'Expenses',
+        'Currencies',
     ],
     views: [
         'expense.List',
         'expense.Edit',
         'expense.Import',
+        'expense.Unify',
     ],
     models: [
         'Picture',
@@ -18,6 +20,7 @@ Ext.define('Splitwise.controller.Expenses', {
         'Group',
         'User',
         'Expense',
+        'Currency',
     ],
     init: function() {
         this.control({
@@ -40,7 +43,8 @@ Ext.define('Splitwise.controller.Expenses', {
     },
     editExpense: function(grid, record) {
         var view = Ext.widget('expenseedit');
-        view.down('form').loadRecord(record);
+        view.down('propertygrid').setSource(record.data);
+        //view.down('form').loadRecord(record);
     },
 });
 
