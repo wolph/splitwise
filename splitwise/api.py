@@ -28,6 +28,10 @@ class OAuthException(Exception):
     pass
 
 
+class NotLoggedInException(OAuthException):
+    ERROR = 'Invalid API Request: you are not logged in'
+
+
 class SplitwiseApiResponse(object):
     def __init__(self, (response, raw_data)):
         content_type = response['content-type'].split(';')
@@ -47,6 +51,9 @@ class SplitwiseApiResponse(object):
         self.response = response
         self.raw_data = raw_data
         self.data = flask.json.loads(raw_data)
+
+        if self.data.get('error') == NotLoggedInException.ERROR:
+            raise NotLoggedInException(self)
 
     def get(self, key, default=None):
         return self.data.get(key, default)
@@ -141,10 +148,13 @@ class SplitwiseRemoteApp(object):
                                '`API_SECRET` in the config')
         url = urlparse.urljoin(self.base_url, url)
         app.logger.info('%s %s (%r)', method, url, body)
-        response = SplitwiseApiResponse(self.client.request(url, method, body))
-        return response
-        # TODO: see if this code is actually needed, it seems to work just fine
-        # for the time being
+
+        try:
+            response = SplitwiseApiResponse(
+                self.client.request(url, method, body))
+        except NotLoggedInException:
+            flask.abort(401)
+
         if 200 <= response.status < 300:
             return response
         else:
