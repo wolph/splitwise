@@ -5,6 +5,11 @@ from splitwise import app
 from splitwise.api import splitwise
 from flask.ext import restful
 from flask.ext.restful import reqparse
+import httplib2
+import decimal
+
+
+http = httplib2.Http('.http_cache')
 
 
 def api_bool(value):
@@ -252,10 +257,117 @@ class Friends(Resource):
 
 class Currencies(Resource):
     def get(self):
+        context = dict()
         if app.config.get('OFFLINE'):
-            return flask.json.load(open('offline/currencies.json'))
+            currencies = flask.json.load(open('offline/currencies.json'))
         else:
-            return splitwise.get_currencies()
+            currencies = splitwise.get_currencies()
+
+        user = splitwise.get_current_user()
+        target_currency = user.get('default_currency') or 'EUR'
+
+        exchange_rates = flask.json.loads(http.request(
+            app.config.get('OPEN_EXCHANGE_RATES_URL'))[1])
+        rates = exchange_rates['rates']
+
+        for currency in currencies:
+            currency['new_currency_code'] = target_currency
+            code = currency['currency_code']
+            rate = 1.
+            if code in rates:
+                rate = rates[code] / rates[target_currency]
+
+            currency['exchange'] = rate
+            currency['convert'] = False
+
+        context['currencies'] = currencies
+        context['target_currency'] = target_currency
+        return context
+
+    def put(self):
+        import pprint
+
+        parser = reqparse.RequestParser()
+        parser.add_argument('group_id', type=int)
+        parser.add_argument('limit', type=int, default=0)
+        parser.add_argument('offset', type=int, default=0)
+
+        convert = dict()
+        currencies = flask.request.get_json()
+        if isinstance(currencies, dict):
+            currencies = [currencies]
+
+        for currency in currencies:
+            if currency.get('convert'):
+                currency['exchange'] = decimal.Decimal(
+                    currency['exchange'])
+                convert[currency['currency_code']] = currency
+
+        kwargs = dict(parser.parse_args())
+        kwargs['group_id'] = kwargs['group_id'] or 0
+
+        for expense in splitwise.get_expenses(kwargs)['expenses']:
+            if expense.get('deleted_at'):
+                # Skip deleted
+                continue
+
+            if expense['currency_code'] in convert:
+                currency = convert[expense['currency_code']]
+            else:
+                # Only process items we will actually convert
+                continue
+
+            new_expense = dict()
+            new_expense['cost'] = str(decimal.Decimal(expense['cost'])
+                                   / currency['exchange'])
+            new_expense['description'] = (
+                expense['description'] + ' (%(currency_code)s %(cost)s)'
+                % expense)
+            new_expense['currency_code'] = currency['new_currency_code']
+
+            pprint.pprint(expense)
+            pprint.pprint(new_expense)
+            expense.update(new_expense)
+            try:
+                new = splitwise.update_expense(expense['id'], new_expense)
+                print 'new'
+                pprint.pprint(new)
+            except Exception, e:
+                print e, e.__dict__
+            return
+
+
+        #if flask.request.values.get('input'):
+        #    parser.add_argument('input', type=str, required=True)
+        #    parser.add_argument('group_id', type=int)
+        #    parser.add_argument('friend_id', type=int)
+        #    parser.add_argument('autosave', type=api_bool)
+        #    return splitwise.parse_sentence(parser.parse_args())
+
+        #else:
+        #    parser.add_argument('payment', type=float, required=True)
+        #    parser.add_argument('cost', type=float, required=True)
+        #    parser.add_argument('description', type=str, required=True)
+        #    parser.add_argument('group_id', type=int)
+        #    parser.add_argument('friendship_id', type=int)
+        #    parser.add_argument('details', type=str)
+        #    parser.add_argument(
+        #        'creation_method', type=str,
+        #        choices=('iou', 'quickadd', 'payment', 'split'))
+        #    parser.add_argument('date', type=str)
+        #    parser.add_argument(
+        #        'repeat_interval', type=str,
+        #        choices=('never', 'weekly', 'fortnightly',
+        #                 'monthly', 'yearly'))
+        #    parser.add_argument('currency_code', type=str)
+        #    parser.add_argument('category_id', type=int)
+
+        #    for i in range(10):
+        #        for param in ('user_id', 'first_name', 'last_name', 'email',
+        #                      'paid_share', 'owed_share'):
+        #            parser.add_argument('users__%d__%s' % (i, param), type=str)
+
+        #    return splitwise.create_expense(parser.parse_args())
 
 
 class Categories(Resource):

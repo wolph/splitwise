@@ -269,6 +269,7 @@ class SplitwiseRemoteApp(object):
         return self.post('create_expense', **kwargs).data
 
     def update_expense(self, expense_id, kwargs):
+        print 'updating with', kwargs
         return self.put('update_expense/%d' % expense_id, **kwargs).data
 
     def delete_expense(self, expense_id):
