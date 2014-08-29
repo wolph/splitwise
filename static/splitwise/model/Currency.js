@@ -3,16 +3,17 @@ Ext.define('Splitwise.model.Currency', {
     proxy: {
         type: 'rest',
         url: '/currencies/',
+        batchActions: true,
+        reader: {
+            root: 'currencies',
+        },
     },
     fields: [
         {name: 'currency_code', type: 'string'},
         {name: 'unit', type: 'string'},
-        {name: 'transactions', type: 'int'},
-        {name: 'amount', type: 'number'},
         {name: 'exchange', type: 'number'},
-        {name: 'result', convert: function(value, record){
-            return record.get('exchange') * record.get('amount');
-        }}
+        {name: 'new_currency_code', type: 'string'},
+        {name: 'convert', type: 'boolean'},
     ]
 });
 
