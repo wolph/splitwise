@@ -32,6 +32,11 @@ class NotLoggedInException(OAuthException):
     ERROR = 'Invalid API Request: you are not logged in'
 
 
+class RedirectException(OAuthException):
+    def __init__(self, to):
+        self.to = to
+
+
 class SplitwiseApiResponse(object):
     def __init__(self, (response, raw_data)):
         content_type = response['content-type'].split(';')
@@ -169,7 +174,7 @@ class SplitwiseRemoteApp(object):
         body = self.get_body(body_params)
         return self.request(url, 'PUT', body)
 
-    def authorize(self, callback):
+    def authorize(self, callback=None):
         client = oauth2.Client(self.consumer)
         response, content = client.request(self.request_token_url, 'POST')
         if int(response['status']) not in (200, 201):
@@ -182,7 +187,7 @@ class SplitwiseRemoteApp(object):
                              request_token['oauth_token_secret'])
         token.set_callback(callback)
         self.token = token
-        return flask.redirect(self.get_url(
+        raise RedirectException(self.get_url(
             self.authorize_url,
             oauth_token=token.key,
             oauth_callback=token.get_callback_url(),
@@ -193,7 +198,7 @@ class SplitwiseRemoteApp(object):
         def authorized_handler():
             token = splitwise.token
             if not token:
-                return self.authorize(flask.request.url)
+                return self.authorize()
 
             token.set_verifier(flask.request.args.get('auth_verifier'))
             splitwise.token = token
@@ -322,6 +327,13 @@ class SplitwiseFlaskApp(SplitwiseRemoteApp):
             return response
         else:
             flask.abort(response.status)
+
+    def authorize(self, callback=None):
+        callback = callback or flask.request.url
+        try:
+            SplitwiseRemoteApp.authorize(self, callback)
+        except RedirectException, e:
+            return flask.redirect(e)
 
 
 splitwise = SplitwiseFlaskApp()
