@@ -4,43 +4,77 @@ Ext.define('Splitwise.view.expense.Unify', {
 
     title: 'Unify Currencies',
     layout: 'border',
-    width: '90%',
-    height: '90%',
+    width: '80%',
+    height: '80%',
     autoShow: true,
 
-    initComponent: function() {
-        this.items = [
-            {
-                xtype: 'grid',
-                region: 'center',
-                columns: [
-                    {text: 'Convert', dataIndex: 'convert'},
-                    {text: 'Transactions', dataIndex: 'transactions'},
-                    {text: 'Currency', dataIndex: 'currency_code'},
-                    {text: 'Unit', dataIndex: 'unit'},
-                    {text: 'Amount', dataIndex: 'amount'},
-                    {text: 'Exchange Rate', dataIndex: 'exchange'},
-                    {text: 'Result', dataIndex: 'result'},
-                ],
-                model: 'Currency',
-            },
-        ];
-
-        this.buttons = [
-            {
+    items: [{
+        xtype: 'grid',
+        region: 'center',
+        dockedItems: [{
+            dock: 'top',
+            xtype: 'toolbar',
+            items: [{
+                xtype: 'combo',
+                width: 200,
+                emptyText: 'Select a group...',
+                store: 'Groups',
+                editable: false,
+                valueField: 'id',
+                displayField: 'name',
+                hideLabel: false,
+                allowBlank: false,
+                typeAhead: true,
+                mode: 'local',
+                triggerAction: 'all'
+            }, {
                 text: 'Convert',
-                action: 'convert',
+                handler: function(){
+                    var store = this.ownerCt.ownerCt.store;
+                    var combo = this.ownerCt.items.items[0];
+                    store.getProxy().setExtraParam('group_id',
+                                                   combo.getValue());
+                    store.sync();
+                }
+            }]
+        }],
+        viewConfig:{
+            markDirty: false,
+        },
+        columns: [
+            {
+                xtype: 'checkcolumn',
+                text: '#',
+                dataIndex: 'convert',
+                width: 25,
+            },
+            {text: '', dataIndex: 'unit', width: 45},
+            {text: 'Cur', dataIndex: 'currency_code', width: 45},
+            {
+                text: 'New',
+                dataIndex: 'new_currency_code',
+                field: {
+                    xtype: 'text'
+                },
+                width: 45,
             },
             {
-                text: 'Cancel',
-                scope: this,
-                handler: this.close,
+                text: 'Exchange Rate',
+                dataIndex: 'exchange',
+                field: {
+                    xtype: 'numberfield'
+                },
+                width: 120,
             },
-        ];
-
+        ],
+        model: 'Currency',
+        store: 'Currencies',
+        plugins: [Ext.create('Ext.grid.plugin.CellEditing', {
+            clicksToEdit: 1
+        })],
+    }],
+    initComponent: function() {
         this.callParent(arguments);
-    }
+    },
 });
-
-
 
