@@ -317,19 +317,41 @@ class Currencies(Resource):
                 # Only process items we will actually convert
                 continue
 
+            def recalculate(amount):
+                rate = currency['exchange']
+                amount = decimal.Decimal(amount)
+                return '%.2f' % (amount / rate)
+
             new_expense = dict()
-            new_expense['cost'] = str(decimal.Decimal(expense['cost'])
-                                   / currency['exchange'])
+            new_expense['cost'] = recalculate(expense['cost'])
+            expense['exchange'] = currency['exchange']
             new_expense['description'] = (
-                expense['description'] + ' (%(currency_code)s %(cost)s)'
+                '%(description)s (%(currency_code)s %(cost)s @ %(exchange).2f)'
                 % expense)
             new_expense['currency_code'] = currency['new_currency_code']
 
-            pprint.pprint(expense)
+            for i, user in enumerate(expense['users']):
+                def add_user(k, v):
+                    new_expense['users__%d__%s' % (i, k)] = v
+                add_user('user_id', user['user_id'])
+                add_user('paid_share', recalculate(user['paid_share']))
+                add_user('owed_share', recalculate(user['owed_share']))
+                add_user('net_balance', recalculate(user['net_balance']))
+
+            for i, repayment in enumerate(expense['repayments']):
+                def add_repayment(k, v):
+                    new_expense['repayments__%d__%s' % (i, k)] = v
+
+                add_repayment('to', repayment['to'])
+                add_repayment('from', repayment['from'])
+                add_repayment('amount', recalculate(repayment['amount']))
+
+            #pprint.pprint(expense)
             pprint.pprint(new_expense)
-            expense.update(new_expense)
             try:
-                new = splitwise.update_expense(expense['id'], new_expense)
+                #print 'update'
+                #pprint.pprint(new_expense)
+                new = splitwise.update_expense(int(expense['id']), new_expense)
                 print 'new'
                 pprint.pprint(new)
             except Exception, e:

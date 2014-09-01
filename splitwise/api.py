@@ -50,10 +50,17 @@ class SplitwiseApiResponse(object):
 
         self.response = response
         self.raw_data = raw_data
-        self.data = flask.json.loads(raw_data)
+        try:
+            self.data = flask.json.loads(raw_data)
+        except ValueError:
+            app.logger.error('Non-JSON response from the API, got:\n%s' %
+                             raw_data)
+            raise
 
         if self.data.get('error') == NotLoggedInException.ERROR:
             raise NotLoggedInException(self)
+        elif self.data.get('error'):
+            app.logger.error('Got error: %s', self.data['error'])
 
     def get(self, key, default=None):
         return self.data.get(key, default)
@@ -140,10 +147,10 @@ class SplitwiseRemoteApp(object):
         assert self.consumer, ('Dont forget to set the `API_KEY` and '
                                '`API_SECRET` in the config')
         url = urlparse.urljoin(self.base_url, url)
-        app.logger.info('%s %s (%r)', method, url, body)
+        app.logger.info('[%s] %s %r', method, url, body)
 
-        response = SplitwiseApiResponse(
-            self.client.request(url, method, body))
+        raw_response = self.client.request(url, method, body)
+        response = SplitwiseApiResponse(raw_response)
 
         return response
 
@@ -159,7 +166,8 @@ class SplitwiseRemoteApp(object):
         return urllib.urlencode(body)
 
     def get(self, url, **query):
-        return self.request(self.get_url(url, **query), 'GET')
+        url = self.get_url(url, **query)
+        return self.request(url, 'GET')
 
     def post(self, url, **body_params):
         body = self.get_body(body_params)
@@ -269,8 +277,7 @@ class SplitwiseRemoteApp(object):
         return self.post('create_expense', **kwargs).data
 
     def update_expense(self, expense_id, kwargs):
-        print 'updating with', kwargs
-        return self.put('update_expense/%d' % expense_id, **kwargs).data
+        return self.get('update_expense/%d' % expense_id, **kwargs).data
 
     def delete_expense(self, expense_id):
         return self.get('delete_expense/%d' % expense_id)['success']
@@ -322,7 +329,7 @@ class SplitwiseFlaskApp(SplitwiseRemoteApp):
         if 200 <= response.status < 300:
             return response
         else:
-            flask.abort(response.status)
+            flask.abort(response.status, response=response.data)
 
 
 splitwise = SplitwiseFlaskApp()
