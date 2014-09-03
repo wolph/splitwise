@@ -3,6 +3,7 @@ import datetime
 # Your app key and secret
 API_KEY = ''
 API_SECRET = ''
+API_REDIRECT_URL = 'http://127.0.0.1:8080/'
 
 # Openexchangerates.org url including app_id, something like this:
 # 'https://openexchangerates.org/api/latest.json?app_id=APP_ID'

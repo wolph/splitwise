@@ -1,7 +1,7 @@
 import flask
 import urllib
 import pprint
-import oauth2
+import requests_oauthlib
 from splitwise import app
 import functools
 from flask.ext import restful
@@ -33,28 +33,14 @@ class NotLoggedInException(OAuthException):
 
 
 class SplitwiseApiResponse(object):
-    def __init__(self, (response, raw_data)):
-        content_type = response['content-type'].split(';')
-        if len(content_type) == 2:
-            content_type, encoding = content_type
-            encoding = encoding.split('charset=')[1]
-            raw_data = unicode(raw_data, encoding, 'replace')
-        else:
-            content_type = content_type[0]
-
-        #assert content_type == 'application/json', (
-        #    'Only application/json data is supported')
-        if content_type != 'application/json':
-            app.logger.error('Only application/json data is supported, got %r',
-                             content_type)
-
+    def __init__(self, response):
         self.response = response
-        self.raw_data = raw_data
+        self.raw_data = response.text
         try:
-            self.data = flask.json.loads(raw_data)
+            self.data = response.json()
         except ValueError:
             app.logger.error('Non-JSON response from the API, got:\n%s' %
-                             raw_data)
+                             response.text)
             raise
 
         if self.data.get('error') == NotLoggedInException.ERROR:
@@ -73,7 +59,7 @@ class SplitwiseApiResponse(object):
 
     @property
     def status(self):
-        return int(self.response['status'])
+        return int(self.response.status_code)
 
     def __unicode__(self):
         return self.raw_data
@@ -109,47 +95,39 @@ class SplitwiseRemoteApp(object):
             request_token_url=API_REQUEST_TOKEN_URL,
             access_token_url=API_ACCESS_TOKEN_URL,
             authorize_url=API_AUTHORIZE_URL,
+            callback_url=None,
     ):
         self.base_url = base_url
         self.request_token_url = request_token_url
         self.access_token_url = access_token_url
         self.authorize_url = authorize_url
-
-        if token_key and token_secret:
-            self.consumer = oauth2.Consumer(key=token_key, secret=token_secret)
-        else:
-            self.consumer = None
+        self.callback_url = callback_url
+        self.token_key = token_key
+        self.token_secret = token_secret
 
     @property
     def client(self):
-        return oauth2.Client(self.consumer, self.token)
+        return self.get_client()
 
-    def get_token(self):
-        return getattr(self, '_token', None)
+    def get_client(self, callback_url=None):
+        callback_url = (callback_url or
+                        flask.url_for('authorized', _external=True))
+        return requests_oauthlib.OAuth1Session(
+            self.token_key,
+            client_secret=self.token_secret,
+            verifier=flask.session.get('oauth_verifier'),
+            resource_owner_key=flask.session.get('oauth_token'),
+            resource_owner_secret=flask.session.get('oauth_token_secret'),
+            callback_uri=callback_url or self.callback_url,
+        )
 
-    def set_token(self, token_or_string):
-        if isinstance(token_or_string, basestring):
-            if token_or_string:
-                self._token = oauth2.Token.from_string(token_or_string)
-        elif isinstance(token_or_string, oauth2.Token):
-            self._token = token_or_string
-        else:
-            raise TypeError('Unknown type %r, cannot convert %r to token' % (
-                type(token_or_string), token_or_string))
-
-    def del_token(self):
-        self._token = None
-
-    token = property(get_token, set_token, del_token,
-                     ':type: :class:`oauth2.Token`')
-
-    def request(self, url, method, body=''):
-        assert self.consumer, ('Dont forget to set the `API_KEY` and '
-                               '`API_SECRET` in the config')
+    def request(self, url, method, data=None):
+        assert self.token_key and self.token_secret, (
+            'Dont forget to set the  `API_KEY` and `API_SECRET` in the config')
         url = urlparse.urljoin(self.base_url, url)
-        app.logger.info('[%s] %s %r', method, url, body)
+        app.logger.info('[%s] %s %r', method, url, data)
 
-        raw_response = self.client.request(url, method, body)
+        raw_response = self.client.request(method, url, data)
         response = SplitwiseApiResponse(raw_response)
 
         return response
@@ -170,41 +148,38 @@ class SplitwiseRemoteApp(object):
         return self.request(url, 'GET')
 
     def post(self, url, **body_params):
-        body = self.get_body(body_params)
-        return self.request(url, 'POST', body)
+        return self.request(url, 'POST', body_params)
 
     def put(self, url, **body_params):
-        body = self.get_body(body_params)
-        return self.request(url, 'PUT', body)
+        return self.request(url, 'PUT', body_params)
 
-    def authorize(self, callback):
-        client = oauth2.Client(self.consumer)
-        response, content = client.request(self.request_token_url, 'POST')
-        if int(response['status']) not in (200, 201):
-            raise OAuthException(
-                'Failed to generate request token, error: %r' % response)
+    def logout(self):
+        for k in ('oauth_token', 'oauth_token_secret', 'oauth_verifier'):
+            if k in flask.session:
+                del flask.session[k]
 
-        # Set the oauth_token and oauth_token_secret for the session
-        request_token = dict(urlparse.parse_qsl(content))
-        token = oauth2.Token(request_token['oauth_token'],
-                             request_token['oauth_token_secret'])
-        token.set_callback(callback)
-        self.token = token
-        return flask.redirect(self.get_url(
-            self.authorize_url,
-            oauth_token=token.key,
-            oauth_callback=token.get_callback_url(),
-        ))
+    def authorize(self, callback=None):
+        self.logout()
+        client = self.get_client(callback)
+        response = client.fetch_request_token(self.request_token_url)
+        flask.session['oauth_token'] = response['oauth_token']
+        flask.session['oauth_token_secret'] = response['oauth_token_secret']
+        return flask.redirect(client.authorization_url(self.authorize_url))
 
     def authorized_handler(self, f):
         @functools.wraps(f)
         def authorized_handler():
-            token = splitwise.token
-            if not token:
+            if not flask.session.get('oauth_token_secret'):
                 return self.authorize(flask.request.url)
 
-            token.set_verifier(flask.request.args.get('auth_verifier'))
-            splitwise.token = token
+            response = self.client.parse_authorization_response(
+                flask.request.url)
+            flask.session['oauth_verifier'] = response['oauth_verifier']
+
+            response = splitwise.client.fetch_access_token(
+                splitwise.access_token_url)
+            flask.session['oauth_token'] = response['oauth_token']
+            flask.session['oauth_token_secret'] = response['oauth_token_secret']
 
             response = self.get_current_user()
             return f(response)
@@ -300,26 +275,6 @@ class SplitwiseRemoteApp(object):
 
 
 class SplitwiseFlaskApp(SplitwiseRemoteApp):
-    def get_token(self):
-        token = flask.session.get('token')
-        if token:
-            return oauth2.Token.from_string(token)
-
-    def set_token(self, token_or_string):
-        if isinstance(token_or_string, basestring):
-            flask.session['token'] = token_or_string
-        elif isinstance(token_or_string, oauth2.Token):
-            flask.session['token'] = token_or_string.to_string()
-        else:
-            raise TypeError('Unknown type %r, cannot convert %r to token' % (
-                type(token_or_string), token_or_string))
-
-    def del_token(self):
-        flask.session.pop('token', None)
-
-    token = property(get_token, set_token, del_token,
-                     ':type: :class:`oauth2.Token`')
-
     def request(self, url, method, body=''):
         try:
             response = SplitwiseRemoteApp.request(self, url, method, body)

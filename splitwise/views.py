@@ -288,9 +288,9 @@ class Currencies(Resource):
         import pprint
 
         parser = reqparse.RequestParser()
-        parser.add_argument('group_id', type=int)
-        parser.add_argument('limit', type=int, default=0)
-        parser.add_argument('offset', type=int, default=0)
+        parser.add_argument('group_id', type=int, location='args')
+        parser.add_argument('limit', type=int, default=0, location='args')
+        parser.add_argument('offset', type=int, default=0, location='args')
 
         convert = dict()
         currencies = flask.request.get_json()
@@ -303,10 +303,7 @@ class Currencies(Resource):
                     currency['exchange'])
                 convert[currency['currency_code']] = currency
 
-        kwargs = dict(parser.parse_args())
-        kwargs['group_id'] = kwargs['group_id'] or 0
-
-        for expense in splitwise.get_expenses(kwargs)['expenses']:
+        for expense in splitwise.get_expenses(parser.parse_args())['expenses']:
             if expense.get('deleted_at'):
                 # Skip deleted
                 continue
@@ -320,77 +317,48 @@ class Currencies(Resource):
             def recalculate(amount):
                 rate = currency['exchange']
                 amount = decimal.Decimal(amount)
-                return '%.2f' % (amount / rate)
+                return float('%.2f' % (amount / rate))
 
             new_expense = dict()
-            new_expense['cost'] = recalculate(expense['cost'])
             expense['exchange'] = currency['exchange']
             new_expense['description'] = (
                 '%(description)s (%(currency_code)s %(cost)s @ %(exchange).2f)'
-                % expense)
+                % expense).encode('utf-8')
             new_expense['currency_code'] = currency['new_currency_code']
 
+            paying_users = 0
+            owed = 0
+            paid_total = 0
             for i, user in enumerate(expense['users']):
                 def add_user(k, v):
                     new_expense['users__%d__%s' % (i, k)] = v
+                    return v
+
                 add_user('user_id', user['user_id'])
-                add_user('paid_share', recalculate(user['paid_share']))
-                add_user('owed_share', recalculate(user['owed_share']))
-                add_user('net_balance', recalculate(user['net_balance']))
+                paid = add_user('paid_share', recalculate(user['paid_share']))
+                owed += add_user('owed_share', recalculate(user['owed_share']))
+                if paid:
+                    paying_user = i
+                    paying_users += 1
+                    paid_total += paid
 
-            for i, repayment in enumerate(expense['repayments']):
-                def add_repayment(k, v):
-                    new_expense['repayments__%d__%s' % (i, k)] = v
+            if paying_users == 1:
+                new_expense['users__%d__paid_share' % paying_user] = owed
+            elif paying_users > 1 and paid_total != owed:
+                print ('Paid total does not match up to owed amount '
+                       '(%s != %s)' % (paid_total, owed))
+                continue
+            new_expense['cost'] = owed
 
-                add_repayment('to', repayment['to'])
-                add_repayment('from', repayment['from'])
-                add_repayment('amount', recalculate(repayment['amount']))
-
-            #pprint.pprint(expense)
-            pprint.pprint(new_expense)
             try:
-                #print 'update'
-                #pprint.pprint(new_expense)
                 new = splitwise.update_expense(int(expense['id']), new_expense)
-                print 'new'
-                pprint.pprint(new)
+                assert not new.get('errors'), new['errors']
             except Exception, e:
-                print e, e.__dict__
-            return
+                print repr(e), e
+                print new_expense
+                raise
 
-
-        #if flask.request.values.get('input'):
-        #    parser.add_argument('input', type=str, required=True)
-        #    parser.add_argument('group_id', type=int)
-        #    parser.add_argument('friend_id', type=int)
-        #    parser.add_argument('autosave', type=api_bool)
-        #    return splitwise.parse_sentence(parser.parse_args())
-
-        #else:
-        #    parser.add_argument('payment', type=float, required=True)
-        #    parser.add_argument('cost', type=float, required=True)
-        #    parser.add_argument('description', type=str, required=True)
-        #    parser.add_argument('group_id', type=int)
-        #    parser.add_argument('friendship_id', type=int)
-        #    parser.add_argument('details', type=str)
-        #    parser.add_argument(
-        #        'creation_method', type=str,
-        #        choices=('iou', 'quickadd', 'payment', 'split'))
-        #    parser.add_argument('date', type=str)
-        #    parser.add_argument(
-        #        'repeat_interval', type=str,
-        #        choices=('never', 'weekly', 'fortnightly',
-        #                 'monthly', 'yearly'))
-        #    parser.add_argument('currency_code', type=str)
-        #    parser.add_argument('category_id', type=int)
-
-        #    for i in range(10):
-        #        for param in ('user_id', 'first_name', 'last_name', 'email',
-        #                      'paid_share', 'owed_share'):
-        #            parser.add_argument('users__%d__%s' % (i, param), type=str)
-
-        #    return splitwise.create_expense(parser.parse_args())
-
+        return ''
 
 class Categories(Resource):
     def get(self):

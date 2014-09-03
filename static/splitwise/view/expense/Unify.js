@@ -32,8 +32,13 @@ Ext.define('Splitwise.view.expense.Unify', {
                 handler: function(){
                     var store = this.ownerCt.ownerCt.store;
                     var combo = this.ownerCt.items.items[0];
-                    store.getProxy().setExtraParam('group_id',
-                                                   combo.getValue());
+                    var group_id = combo.getValue();
+                    var extraParams = store.getProxy().extraParams;
+                    if(group_id){
+                        extraParams.group_id = group_id;
+                    }else{
+                        delete extraParams.group_id;
+                    }
                     store.sync();
                 }
             }]
